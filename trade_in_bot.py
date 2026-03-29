@@ -463,21 +463,16 @@ def run_trade_in_loop(category_name):
     while True:
         check_abort()
 
-        # Check if the game auto-returned us to the main menu (category complete)
-        if is_on_main_menu():
+        # Take ONE screenshot and reuse for all checks (big speed improvement)
+        screen = take_screenshot()
+
+        # Check if game auto-returned us to main menu (category complete)
+        if is_on_main_menu(screenshot=screen):
             print(f"  [done] Category complete — game returned to main menu.")
             return trades_completed
 
-        # Check if we're still on the trade-in screen
-        if not is_on_trade_in_screen():
-            # Not on trade-in screen and not on main menu — something unexpected
-            time.sleep(1.0)
-            if is_on_main_menu():
-                print(f"  [done] Category complete — game returned to main menu.")
-                return trades_completed
-
         # Visually check how many slots are currently filled
-        slots_filled = count_filled_slots()
+        slots_filled = count_filled_slots(screenshot=screen)
 
         # If 5 slots filled, execute the trade
         if slots_filled >= 5:
@@ -485,18 +480,12 @@ def run_trade_in_loop(category_name):
                 execute_trade()
                 trades_completed += 1
                 trade_summary[category_name] = trades_completed
-                item_index = 0  # Reset — grid refreshes after trade
+                item_index = 0
                 scroll_attempts = 0
-                # Wait for screen to fully transition back
                 time.sleep(1.0)
-                # Check if game auto-returned to main menu after this trade
                 if is_on_main_menu():
                     print(f"  [done] Category complete — game returned to main menu.")
                     return trades_completed
-                # Verify slots are actually empty now before continuing
-                post_trade_slots = count_filled_slots()
-                if post_trade_slots >= 5:
-                    time.sleep(1.0)
                 continue
             except TimeoutError as e:
                 print(f"  [ERROR] Trade execution failed: {e}")
@@ -510,12 +499,9 @@ def run_trade_in_loop(category_name):
                 scroll_item_grid()
                 after_scroll = take_screenshot()
 
-                grid_region_before = before_scroll[ITEM_GRID_Y:ITEM_GRID_Y+ITEM_GRID_H, ITEM_GRID_X:ITEM_GRID_X+ITEM_GRID_W]
-                grid_region_after = after_scroll[ITEM_GRID_Y:ITEM_GRID_Y+ITEM_GRID_H, ITEM_GRID_X:ITEM_GRID_X+ITEM_GRID_W]
-                diff = cv2.absdiff(grid_region_before, grid_region_after)
-                mean_diff = np.mean(diff)
-
-                if mean_diff < 5:
+                grid_before = before_scroll[ITEM_GRID_Y:ITEM_GRID_Y+ITEM_GRID_H, ITEM_GRID_X:ITEM_GRID_X+ITEM_GRID_W]
+                grid_after = after_scroll[ITEM_GRID_Y:ITEM_GRID_Y+ITEM_GRID_H, ITEM_GRID_X:ITEM_GRID_X+ITEM_GRID_W]
+                if np.mean(cv2.absdiff(grid_before, grid_after)) < 5:
                     print("  [scroll] No new items found after scrolling.")
                     break
 
@@ -530,33 +516,54 @@ def run_trade_in_loop(category_name):
         pos = get_item_position(item_index)
         check_abort()
         pyautogui.click(pos[0], pos[1])
-        time.sleep(SHORT_DELAY)
-        time.sleep(0.2)  # Wait for popup to appear
+        time.sleep(0.3)  # Brief wait for game to respond
+
+        # Take ONE screenshot for all popup checks
+        popup_screen = take_screenshot()
 
         # Check for "Not Eligible" popup
-        if handle_not_eligible_popup():
+        if find_on_screen("not_eligible_popup.png", screenshot=popup_screen, confidence=0.6) is not None:
+            try:
+                click_image("not_eligible_ok.png", timeout=2, delay_after=0.2)
+            except TimeoutError:
+                pyautogui.click(1280, 815)
+                time.sleep(0.2)
+            print("    [skip] Item not eligible for trade-in")
             item_index += 1
             continue
 
         # Check for "Choose Quantity" popup
-        slots_remaining = 5 - slots_filled
-        if handle_choose_quantity_popup(slots_remaining):
+        if find_on_screen("choose_quantity_popup.png", screenshot=popup_screen, confidence=0.6) is not None:
+            slots_remaining = 5 - slots_filled
+            clicks_needed = slots_remaining - 1
+            for _ in range(clicks_needed):
+                check_abort()
+                pyautogui.click(1375, 731)
+                time.sleep(0.15)
+            try:
+                click_image("quantity_ok.png", timeout=2, delay_after=0.2)
+            except TimeoutError:
+                pyautogui.click(1132, 815)
+                time.sleep(0.2)
             new_count = count_filled_slots()
-            print(f"    Slots filled: {new_count}/5")
+            print(f"    [quantity] Selected duplicates. Slots filled: {new_count}/5")
             item_index += 1
             continue
 
-        # Check for "Too Many Items" or other unexpected popup
-        if dismiss_any_popup("Too Many Items"):
-            # Slots are likely full — loop back to check and trade
+        # Check for any other popup (Too Many Items, etc.)
+        popup_region = popup_screen[550:650, 950:1600]
+        if np.mean(popup_region) > 120:
+            print("    [popup] Unexpected popup — dismissing")
+            pyautogui.click(1280, 830)
+            time.sleep(0.3)
             continue
 
-        # No popup — item was probably added directly
-        new_count = count_filled_slots()
+        # No popup — item was added directly
+        new_count = count_filled_slots(screenshot=popup_screen)
         if new_count > slots_filled:
             print(f"    [+] Item added. Slots filled: {new_count}/5")
         else:
-            print(f"    [?] Clicked item {item_index} — no change detected (slots: {new_count}/5)")
+            print(f"    [?] Clicked item {item_index} — no change (slots: {new_count}/5)")
         item_index += 1
 
     slots_filled = count_filled_slots()
