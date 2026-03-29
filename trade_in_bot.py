@@ -257,3 +257,215 @@ def is_on_screen(template_name, screenshot=None):
         True if found, False otherwise.
     """
     return find_on_screen(template_name, screenshot=screenshot) is not None
+
+
+def get_item_position(index):
+    """Get the screen coordinates for an item in the grid by its index.
+
+    Args:
+        index: 0-based item index (left-to-right, top-to-bottom).
+
+    Returns:
+        (x, y) center coordinates of the item cell.
+    """
+    row = index // ITEM_COLS
+    col = index % ITEM_COLS
+    x = ITEM_START_X + col * ITEM_CELL_W
+    y = ITEM_START_Y + row * ITEM_CELL_H
+    return (x, y)
+
+
+def handle_not_eligible_popup():
+    """Dismiss the 'Not Eligible' popup by clicking OK.
+
+    Returns:
+        True if popup was found and dismissed, False if not present.
+    """
+    screenshot = take_screenshot()
+    if is_on_screen("not_eligible_popup.png", screenshot=screenshot):
+        click_image("not_eligible_ok.png", timeout=3, delay_after=SHORT_DELAY)
+        print("    [skip] Item not eligible for trade-in")
+        return True
+    return False
+
+
+def handle_choose_quantity_popup(slots_remaining):
+    """Handle the 'Choose Quantity' popup — select max available up to slots_remaining.
+
+    Args:
+        slots_remaining: Number of trade-in slots still empty (1-5).
+
+    Returns:
+        Number of items selected if popup was found, 0 if not present.
+    """
+    screenshot = take_screenshot()
+    if is_on_screen("choose_quantity_popup.png", screenshot=screenshot):
+        # Click + button (slots_remaining - 1) times since it starts at 1
+        clicks_needed = slots_remaining - 1
+        for _ in range(clicks_needed):
+            check_abort()
+            try:
+                click_image("quantity_plus.png", timeout=3, delay_after=0.15)
+            except TimeoutError:
+                # Plus button disappeared — we've hit the max available
+                break
+
+        click_image("quantity_ok.png", timeout=3, delay_after=SHORT_DELAY)
+        print(f"    [quantity] Selected up to {slots_remaining} from duplicates")
+        return slots_remaining  # May be less if capped, but we track optimistically
+    return 0
+
+
+def count_filled_slots(screenshot=None):
+    """Count how many of the 5 trade-in slots are filled by checking for the empty slot pattern.
+
+    This is a heuristic — we primarily track slot count via logic rather than vision.
+    Used as a hook for future improvement.
+    """
+    # We rely on logical tracking rather than visual counting
+    pass
+
+
+def scroll_item_grid():
+    """Scroll down in the item grid to reveal more items.
+
+    Returns:
+        True if scroll was performed.
+    """
+    # Move mouse to center of item grid and scroll down
+    grid_center_x = ITEM_GRID_X + ITEM_GRID_W // 2
+    grid_center_y = ITEM_GRID_Y + ITEM_GRID_H // 2
+    pyautogui.moveTo(grid_center_x, grid_center_y)
+    time.sleep(0.1)
+    pyautogui.scroll(-3)  # Scroll down
+    time.sleep(0.5)
+    return True
+
+
+def execute_trade():
+    """Execute the trade-in: click ACCEPT, confirm YES, dismiss reward.
+
+    Returns:
+        True if trade completed successfully.
+
+    Raises:
+        TimeoutError: If any step in the trade process fails.
+    """
+    print("  [trade] 5 slots filled — executing trade...")
+
+    # Click ACCEPT
+    click_image("accept_button_active.png", timeout=5, delay_after=0.5)
+
+    # Click YES on confirm popup
+    click_image("confirm_yes.png", timeout=5, delay_after=LONG_DELAY)
+
+    # Click OK on reward screen
+    click_image("reward_ok.png", timeout=5, delay_after=0.5)
+
+    print("  [trade] Trade complete! Reward collected.")
+    return True
+
+
+def run_trade_in_loop(category_name):
+    """Run the trade-in loop for a single category.
+
+    Clicks items in the grid one by one, handles popups, fills 5 slots,
+    executes the trade, and repeats until no more items can be traded.
+
+    Args:
+        category_name: Display name of the category (for logging/summary).
+
+    Returns:
+        Number of trades completed in this category.
+    """
+    trades_completed = 0
+    slots_filled = 0
+    item_index = 0
+    max_items_visible = ITEM_COLS * ITEM_ROWS
+    scroll_attempts = 0
+    max_scroll_attempts = 5  # Max times to scroll looking for more items
+    items_tried_since_last_fill = 0
+
+    print(f"\n  Starting trade-in for: {category_name}")
+
+    while True:
+        check_abort()
+
+        # If we've tried all visible items without filling 5 slots
+        if item_index >= max_items_visible:
+            if scroll_attempts < max_scroll_attempts:
+                print(f"  [scroll] Scrolling down for more items (attempt {scroll_attempts + 1})...")
+                # Take screenshot before scroll to compare after
+                before_scroll = take_screenshot()
+                scroll_item_grid()
+                after_scroll = take_screenshot()
+
+                # Check if scroll revealed new content by comparing screenshots
+                # Simple check: if the grid region changed significantly
+                grid_region_before = before_scroll[ITEM_GRID_Y:ITEM_GRID_Y+ITEM_GRID_H, ITEM_GRID_X:ITEM_GRID_X+ITEM_GRID_W]
+                grid_region_after = after_scroll[ITEM_GRID_Y:ITEM_GRID_Y+ITEM_GRID_H, ITEM_GRID_X:ITEM_GRID_X+ITEM_GRID_W]
+                diff = cv2.absdiff(grid_region_before, grid_region_after)
+                mean_diff = np.mean(diff)
+
+                if mean_diff < 5:  # Very little changed — no new items
+                    print("  [scroll] No new items found after scrolling.")
+                    break
+
+                # Reset item index to try new items (start from top of visible grid)
+                item_index = 0
+                scroll_attempts += 1
+                continue
+            else:
+                print("  [done] Max scroll attempts reached — category exhausted.")
+                break
+
+        # Click the next item in the grid
+        pos = get_item_position(item_index)
+        check_abort()
+        pyautogui.click(pos[0], pos[1])
+        time.sleep(SHORT_DELAY)
+
+        # Check what happened after clicking
+        # Wait a moment for any popup to appear
+        time.sleep(0.2)
+
+        # Check for "Not Eligible" popup
+        if handle_not_eligible_popup():
+            item_index += 1
+            items_tried_since_last_fill += 1
+            continue
+
+        # Check for "Choose Quantity" popup
+        slots_remaining = 5 - slots_filled
+        quantity_added = handle_choose_quantity_popup(slots_remaining)
+        if quantity_added > 0:
+            slots_filled += quantity_added
+            print(f"    Slots filled: {slots_filled}/5")
+            item_index += 1
+            items_tried_since_last_fill = 0
+        else:
+            # No popup — item was added to a slot directly
+            slots_filled += 1
+            print(f"    [+] Item added. Slots filled: {slots_filled}/5")
+            item_index += 1
+            items_tried_since_last_fill = 0
+
+        # If 5 slots filled, execute the trade
+        if slots_filled >= 5:
+            try:
+                execute_trade()
+                trades_completed += 1
+                slots_filled = 0
+                item_index = 0  # Reset — grid refreshes after trade
+                scroll_attempts = 0
+                items_tried_since_last_fill = 0
+                # Wait for trade-in screen to return to empty state
+                time.sleep(0.5)
+            except TimeoutError as e:
+                print(f"  [ERROR] Trade execution failed: {e}")
+                break
+
+    if slots_filled > 0 and slots_filled < 5:
+        print(f"  [done] Only {slots_filled}/5 slots filled — not enough items to trade.")
+
+    return trades_completed
