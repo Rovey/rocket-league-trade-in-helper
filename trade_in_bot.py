@@ -358,31 +358,29 @@ def count_filled_slots(screenshot=None):
     return filled
 
 
-def handle_too_many_items_popup():
-    """Dismiss the 'Too Many Items' popup by clicking OK.
+def dismiss_any_popup(label="unknown popup"):
+    """Check for and dismiss any popup dialog by clicking the OK button area.
 
-    This popup appears when trying to add items when all 5 slots are already filled.
+    Detects popups by checking for bright content in the center of the screen
+    where popup headers appear. Handles: 'Too Many Items', 'ERROR', etc.
+
+    Args:
+        label: Description for logging.
 
     Returns:
-        True if popup was detected and dismissed, False otherwise.
+        True if a popup was detected and dismissed, False otherwise.
     """
-    # This popup has an OK button in a similar position to other popups
-    # Since we don't have a dedicated template, check if there's a popup
-    # by looking for any unexpected overlay, and click the OK position
     screenshot = take_screenshot()
 
-    # Check the popup region (center of screen) for high brightness/contrast
-    # indicating a popup dialog is present
+    # Check the popup header region (center of screen) for high brightness
     popup_region = screenshot[550:650, 950:1600]
     mean_brightness = np.mean(popup_region)
 
-    # Popups have bright headers — if we see high brightness in the popup area
-    # and we know it's not "Not Eligible" or "Choose Quantity", it's likely "Too Many Items"
     if mean_brightness > 120:
-        print("    [warn] Popup detected (likely 'Too Many Items') — dismissing")
-        # OK button is at approximately the same position as other popups
+        print(f"    [popup] Detected {label} — dismissing with OK")
+        # OK button is at approximately the same position for all popups
         pyautogui.click(1280, 830)
-        time.sleep(SHORT_DELAY)
+        time.sleep(0.5)
         return True
     return False
 
@@ -475,9 +473,16 @@ def run_trade_in_loop(category_name):
             try:
                 execute_trade()
                 trades_completed += 1
+                trade_summary[category_name] = trades_completed
                 item_index = 0  # Reset — grid refreshes after trade
                 scroll_attempts = 0
-                time.sleep(0.5)
+                # Wait for screen to fully transition back to empty trade-in
+                time.sleep(1.0)
+                # Verify slots are actually empty now before continuing
+                post_trade_slots = count_filled_slots()
+                if post_trade_slots >= 5:
+                    # Screen hasn't refreshed yet — wait more
+                    time.sleep(1.0)
                 continue
             except TimeoutError as e:
                 print(f"  [ERROR] Trade execution failed: {e}")
@@ -527,9 +532,9 @@ def run_trade_in_loop(category_name):
             item_index += 1
             continue
 
-        # Check for "Too Many Items" popup (all 5 slots already full)
-        if handle_too_many_items_popup():
-            # Slots are full — loop back to the top which will detect 5/5 and trade
+        # Check for "Too Many Items" or other unexpected popup
+        if dismiss_any_popup("Too Many Items"):
+            # Slots are likely full — loop back to check and trade
             continue
 
         # No popup — item was probably added directly
@@ -653,15 +658,17 @@ def main():
         for template_name, category_name in CATEGORY_CARDS:
             check_abort()
 
+            # Dismiss any popup (e.g., "ERROR - Inventory out of sync")
+            # These can appear after trades with a delay
+            dismiss_any_popup("sync error")
+
             # Try to enter this category
             if not navigate_to_category(template_name, category_name):
                 continue
 
-            # Run the trade-in loop
+            # Run the trade-in loop (updates trade_summary incrementally)
             try:
-                trades = run_trade_in_loop(category_name)
-                if trades > 0:
-                    trade_summary[category_name] = trades
+                run_trade_in_loop(category_name)
             except TimeoutError as e:
                 print(f"  [ERROR] Trade-in loop failed: {e}")
             except Exception as e:
@@ -676,8 +683,16 @@ def main():
                 print("[ERROR] Could not return to main menu. Aborting.")
                 break
 
-            # Verify we're back on the main menu
-            time.sleep(0.5)
+            # Wait for main menu and check for delayed error popups
+            time.sleep(1.0)
+
+            # Check for error popups that may appear after trading
+            for _ in range(3):
+                if dismiss_any_popup("post-trade error"):
+                    time.sleep(1.0)
+                else:
+                    break
+
             if not is_on_main_menu():
                 debug_path = save_debug_screenshot("not_on_main_menu_after_back")
                 print(f"[ERROR] Not on main menu after clicking BACK.")
