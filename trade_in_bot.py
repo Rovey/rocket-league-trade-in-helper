@@ -74,7 +74,6 @@ def on_key_press(key):
 def check_abort():
     """Check if abort was requested. Raises SystemExit if so."""
     if abort_flag:
-        print_summary()
         print("\nAborted by user.")
         sys.exit(0)
 
@@ -308,13 +307,12 @@ def handle_choose_quantity_popup(slots_remaining):
     if find_on_screen("choose_quantity_popup.png", screenshot=screenshot, confidence=0.6) is not None:
         # Click + button (slots_remaining - 1) times since it starts at 1
         # The game will cap at max available — we can't know the exact count
+        # Use known position (1375, 731) as the + button template is tiny and unreliable
         clicks_needed = slots_remaining - 1
         for _ in range(clicks_needed):
             check_abort()
-            try:
-                click_image("quantity_plus.png", timeout=2, delay_after=0.15)
-            except TimeoutError:
-                break
+            pyautogui.click(1375, 731)
+            time.sleep(0.2)
 
         try:
             click_image("quantity_ok.png", timeout=3, delay_after=SHORT_DELAY)
@@ -465,6 +463,19 @@ def run_trade_in_loop(category_name):
     while True:
         check_abort()
 
+        # Check if the game auto-returned us to the main menu (category complete)
+        if is_on_main_menu():
+            print(f"  [done] Category complete — game returned to main menu.")
+            return trades_completed
+
+        # Check if we're still on the trade-in screen
+        if not is_on_trade_in_screen():
+            # Not on trade-in screen and not on main menu — something unexpected
+            time.sleep(1.0)
+            if is_on_main_menu():
+                print(f"  [done] Category complete — game returned to main menu.")
+                return trades_completed
+
         # Visually check how many slots are currently filled
         slots_filled = count_filled_slots()
 
@@ -476,12 +487,15 @@ def run_trade_in_loop(category_name):
                 trade_summary[category_name] = trades_completed
                 item_index = 0  # Reset — grid refreshes after trade
                 scroll_attempts = 0
-                # Wait for screen to fully transition back to empty trade-in
+                # Wait for screen to fully transition back
                 time.sleep(1.0)
+                # Check if game auto-returned to main menu after this trade
+                if is_on_main_menu():
+                    print(f"  [done] Category complete — game returned to main menu.")
+                    return trades_completed
                 # Verify slots are actually empty now before continuing
                 post_trade_slots = count_filled_slots()
                 if post_trade_slots >= 5:
-                    # Screen hasn't refreshed yet — wait more
                     time.sleep(1.0)
                 continue
             except TimeoutError as e:
@@ -676,12 +690,13 @@ def main():
                 print(f"  [ERROR] Unexpected error: {e}")
                 print(f"          Debug screenshot: {debug_path}")
 
-            # Go back to main menu for the next category
-            try:
-                go_back_to_main_menu()
-            except TimeoutError:
-                print("[ERROR] Could not return to main menu. Aborting.")
-                break
+            # Go back to main menu (unless game already auto-returned us)
+            if not is_on_main_menu():
+                try:
+                    go_back_to_main_menu()
+                except TimeoutError:
+                    print("[ERROR] Could not return to main menu. Aborting.")
+                    break
 
             # Wait for main menu and check for delayed error popups
             time.sleep(1.0)
