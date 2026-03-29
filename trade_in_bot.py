@@ -354,7 +354,7 @@ def execute_trade():
     print("  [trade] 5 slots filled — executing trade...")
 
     # Click ACCEPT
-    click_image("accept_button_active.png", timeout=5, delay_after=0.5)
+    click_image("accept_button.png", timeout=5, delay_after=0.5)
 
     # Click YES on confirm popup
     click_image("confirm_yes.png", timeout=5, delay_after=LONG_DELAY)

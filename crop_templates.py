@@ -42,15 +42,14 @@ def main():
 
     # --- Trade-in screen buttons ---
     print("From: trade in empty.png")
-    crop_and_save("trade in empty.png", (207, 133, 100, 30), "accept_button.png")
     crop_and_save("trade in empty.png", (15, 880, 80, 30), "back_button.png")
     crop_and_save("trade in empty.png", (305, 260, 135, 30), "show_filters.png")
-    crop_and_save("trade in empty.png", (28, 50, 530, 35), "trade_in_header.png")
+    crop_and_save("trade in empty.png", (55, 55, 500, 80), "trade_in_empty_slots.png")
     print()
 
     # --- Trade-in filled (ACCEPT button when clickable) ---
     print("From: trade in filled.png")
-    crop_and_save("trade in filled.png", (207, 133, 100, 30), "accept_button_active.png")
+    crop_and_save("trade in filled.png", (207, 133, 100, 30), "accept_button.png")
     print()
 
     # --- Not Eligible popup ---
@@ -61,14 +60,12 @@ def main():
 
     # --- Confirm Trade popup ---
     print("From: trade in accept warning.png")
-    crop_and_save("trade in accept warning.png", (220, 225, 200, 40), "confirm_trade_popup.png")
     crop_and_save("trade in accept warning.png", (215, 305, 90, 30), "confirm_yes.png")
     print()
 
     # --- Reward screen ---
     print("From: trade in item reward.png")
     crop_and_save("trade in item reward.png", (235, 460, 170, 35), "reward_ok.png")
-    crop_and_save("trade in item reward.png", (200, 65, 240, 40), "reward_new_item.png")
     print()
 
     # --- Choose Quantity popup ---
