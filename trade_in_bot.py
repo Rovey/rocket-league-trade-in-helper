@@ -457,6 +457,8 @@ def run_trade_in_loop(category_name):
     max_items_visible = ITEM_COLS * ITEM_ROWS
     scroll_attempts = 0
     max_scroll_attempts = 5
+    no_change_count = 0
+    max_no_change = 7  # Bail out after this many consecutive items with no slot change
 
     print(f"\n  Starting trade-in for: {category_name}")
 
@@ -562,8 +564,13 @@ def run_trade_in_loop(category_name):
         new_count = count_filled_slots(screenshot=popup_screen)
         if new_count > slots_filled:
             print(f"    [+] Item added. Slots filled: {new_count}/5")
+            no_change_count = 0
         else:
+            no_change_count += 1
             print(f"    [?] Clicked item {item_index} — no change (slots: {new_count}/5)")
+            if no_change_count >= max_no_change:
+                print(f"  [done] {max_no_change} items in a row with no change — category exhausted.")
+                break
         item_index += 1
 
     slots_filled = count_filled_slots()
