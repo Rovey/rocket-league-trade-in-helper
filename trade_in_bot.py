@@ -469,3 +469,157 @@ def run_trade_in_loop(category_name):
         print(f"  [done] Only {slots_filled}/5 slots filled — not enough items to trade.")
 
     return trades_completed
+
+
+def is_on_main_menu(screenshot=None):
+    """Check if we're on the main trade-in menu (with category cards).
+
+    Looks for any category card template on screen.
+    """
+    if screenshot is None:
+        screenshot = take_screenshot()
+
+    # Check for a few known cards — if any are visible, we're on the main menu
+    for template_name, _ in CATEGORY_CARDS[:3]:
+        try:
+            if is_on_screen(template_name, screenshot=screenshot):
+                return True
+        except FileNotFoundError:
+            continue
+    return False
+
+
+def is_on_trade_in_screen(screenshot=None):
+    """Check if we're on the trade-in item selection screen."""
+    if screenshot is None:
+        screenshot = take_screenshot()
+    return is_on_screen("show_filters.png", screenshot=screenshot)
+
+
+def navigate_to_category(template_name, category_name):
+    """Click a category card from the main menu and wait for the trade-in screen.
+
+    Args:
+        template_name: Template filename for the category card.
+        category_name: Display name (for logging).
+
+    Returns:
+        True if successfully navigated to the trade-in screen, False if card not found.
+    """
+    print(f"\n[>] Trying category: {category_name}")
+
+    # Check if the card exists on screen
+    pos = find_on_screen(template_name)
+    if pos is None:
+        print(f"  [skip] Card not found on screen — may not have enough items.")
+        return False
+
+    # Click the card
+    check_abort()
+    pyautogui.click(pos[0], pos[1])
+    time.sleep(0.8)
+
+    # Wait for trade-in screen to appear
+    try:
+        wait_for_image("show_filters.png", timeout=5)
+        print(f"  [ok] Entered trade-in screen for {category_name}")
+        return True
+    except TimeoutError:
+        debug_path = save_debug_screenshot(f"failed_entering_{template_name}")
+        print(f"  [ERROR] Trade-in screen didn't appear after clicking {category_name}.")
+        print(f"          Debug screenshot: {debug_path}")
+        return False
+
+
+def go_back_to_main_menu():
+    """Click the BACK button to return to the main menu."""
+    print("\n[<] Going back to main menu...")
+    try:
+        click_image("back_button.png", timeout=5, delay_after=0.8)
+    except TimeoutError as e:
+        print(f"  [ERROR] Could not find BACK button: {e}")
+        raise
+
+
+def main():
+    """Main entry point. Iterates through all categories and trades in everything."""
+    global trade_summary
+
+    print("=" * 50)
+    print("  Rocket League Trade-In Bot")
+    print("  Press Escape at any time to abort")
+    print("=" * 50)
+    print()
+
+    # Start the keyboard listener
+    listener = keyboard.Listener(on_press=on_key_press)
+    listener.start()
+
+    # Give user time to switch to the game
+    print("Starting in 3 seconds — switch to Rocket League now!")
+    print("Make sure you're on the Trade-In main menu screen.")
+    for i in range(3, 0, -1):
+        check_abort()
+        print(f"  {i}...")
+        time.sleep(1)
+    print("  Go!\n")
+
+    try:
+        # Verify we're on the main menu
+        if not is_on_main_menu():
+            debug_path = save_debug_screenshot("not_on_main_menu")
+            print(f"[ERROR] Doesn't look like the Trade-In main menu.")
+            print(f"        Make sure Rocket League is in the foreground on the Trade-In screen.")
+            print(f"        Debug screenshot: {debug_path}")
+            return
+
+        # Iterate through all category cards
+        for template_name, category_name in CATEGORY_CARDS:
+            check_abort()
+
+            # Try to enter this category
+            if not navigate_to_category(template_name, category_name):
+                continue
+
+            # Run the trade-in loop
+            try:
+                trades = run_trade_in_loop(category_name)
+                if trades > 0:
+                    trade_summary[category_name] = trades
+            except TimeoutError as e:
+                print(f"  [ERROR] Trade-in loop failed: {e}")
+            except Exception as e:
+                debug_path = save_debug_screenshot(f"error_in_{template_name}")
+                print(f"  [ERROR] Unexpected error: {e}")
+                print(f"          Debug screenshot: {debug_path}")
+
+            # Go back to main menu for the next category
+            try:
+                go_back_to_main_menu()
+            except TimeoutError:
+                print("[ERROR] Could not return to main menu. Aborting.")
+                break
+
+            # Verify we're back on the main menu
+            time.sleep(0.5)
+            if not is_on_main_menu():
+                debug_path = save_debug_screenshot("not_on_main_menu_after_back")
+                print(f"[ERROR] Not on main menu after clicking BACK.")
+                print(f"        Debug screenshot: {debug_path}")
+                break
+
+        print("\n[done] All categories processed!")
+
+    except SystemExit:
+        pass  # Abort via check_abort() — summary already printed
+    except Exception as e:
+        debug_path = save_debug_screenshot("unexpected_error")
+        print(f"\n[FATAL ERROR] {e}")
+        print(f"              Debug screenshot: {debug_path}")
+    finally:
+        print_summary()
+        listener.stop()
+
+
+if __name__ == "__main__":
+    main()
