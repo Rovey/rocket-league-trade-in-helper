@@ -27,18 +27,18 @@ SHORT_DELAY = 0.3  # Seconds for popup dismissals
 
 # Item grid region on the trade-in screen (x, y, width, height) at 1440p
 # This is the area where item icons appear below the 5 trade-in slots
-ITEM_GRID_X = 35
-ITEM_GRID_Y = 275
-ITEM_GRID_W = 440
-ITEM_GRID_H = 360
+ITEM_GRID_X = 90
+ITEM_GRID_Y = 640
+ITEM_GRID_W = 1400
+ITEM_GRID_H = 650
 
 # Grid layout: items are arranged in rows and columns
 ITEM_COLS = 8  # Items per row
 ITEM_ROWS = 3  # Visible rows
-ITEM_CELL_W = 55  # Approximate width of each item cell
-ITEM_CELL_H = 75  # Approximate height of each item cell
-ITEM_START_X = 55  # X of first item center (relative to screen)
-ITEM_START_Y = 310  # Y of first item center (relative to screen)
+ITEM_CELL_W = 165  # Approximate width of each item cell
+ITEM_CELL_H = 195  # Approximate height of each item cell
+ITEM_START_X = 175  # X of first item center (relative to screen)
+ITEM_START_Y = 740  # Y of first item center (relative to screen)
 
 # Category cards to try, in order (template filename, display name)
 CATEGORY_CARDS = [
