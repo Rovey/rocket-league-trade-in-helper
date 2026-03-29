@@ -19,7 +19,7 @@ from pynput import keyboard
 # --- Configuration ---
 TEMPLATES_DIR = "templates"
 DEBUG_DIR = "debug"
-CONFIDENCE_THRESHOLD = 0.8  # Template matching confidence (0-1)
+CONFIDENCE_THRESHOLD = 0.7  # Template matching confidence (0-1)
 WAIT_TIMEOUT = 10  # Seconds to wait before giving up on finding an image
 CLICK_DELAY = 0.4  # Seconds between regular actions
 LONG_DELAY = 1.5  # Seconds for reward animation, screen transitions
@@ -95,7 +95,7 @@ def save_debug_screenshot(context):
     """
     ensure_debug_dir()
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    safe_context = context.replace(" ", "_").replace("/", "_")
+    safe_context = context.replace(" ", "_").replace("/", "_").replace(".png", "")
     filename = f"{timestamp}_{safe_context}.png"
     filepath = os.path.join(DEBUG_DIR, filename)
     screenshot = pyautogui.screenshot()
@@ -282,8 +282,14 @@ def handle_not_eligible_popup():
         True if popup was found and dismissed, False if not present.
     """
     screenshot = take_screenshot()
-    if is_on_screen("not_eligible_popup.png", screenshot=screenshot):
-        click_image("not_eligible_ok.png", timeout=3, delay_after=SHORT_DELAY)
+    if find_on_screen("not_eligible_popup.png", screenshot=screenshot, confidence=0.6) is not None:
+        try:
+            click_image("not_eligible_ok.png", timeout=3, delay_after=SHORT_DELAY)
+        except TimeoutError:
+            # Template match failed — click the known OK button position as fallback
+            print("    [warn] OK button template not found, clicking known position")
+            pyautogui.click(1280, 815)
+            time.sleep(SHORT_DELAY)
         print("    [skip] Item not eligible for trade-in")
         return True
     return False
@@ -299,7 +305,7 @@ def handle_choose_quantity_popup(slots_remaining):
         Number of items selected if popup was found, 0 if not present.
     """
     screenshot = take_screenshot()
-    if is_on_screen("choose_quantity_popup.png", screenshot=screenshot):
+    if find_on_screen("choose_quantity_popup.png", screenshot=screenshot, confidence=0.6) is not None:
         # Click + button (slots_remaining - 1) times since it starts at 1
         clicks_needed = slots_remaining - 1
         for _ in range(clicks_needed):
@@ -310,7 +316,12 @@ def handle_choose_quantity_popup(slots_remaining):
                 # Plus button disappeared — we've hit the max available
                 break
 
-        click_image("quantity_ok.png", timeout=3, delay_after=SHORT_DELAY)
+        try:
+            click_image("quantity_ok.png", timeout=3, delay_after=SHORT_DELAY)
+        except TimeoutError:
+            print("    [warn] Quantity OK template not found, clicking known position")
+            pyautogui.click(1132, 815)
+            time.sleep(SHORT_DELAY)
         print(f"    [quantity] Selected up to {slots_remaining} from duplicates")
         return slots_remaining  # May be less if capped, but we track optimistically
     return 0
@@ -354,13 +365,28 @@ def execute_trade():
     print("  [trade] 5 slots filled — executing trade...")
 
     # Click ACCEPT
-    click_image("accept_button.png", timeout=5, delay_after=0.5)
+    try:
+        click_image("accept_button.png", timeout=5, delay_after=0.5)
+    except TimeoutError:
+        print("    [warn] ACCEPT template not found, clicking known position")
+        pyautogui.click(1000, 495)
+        time.sleep(0.5)
 
     # Click YES on confirm popup
-    click_image("confirm_yes.png", timeout=5, delay_after=LONG_DELAY)
+    try:
+        click_image("confirm_yes.png", timeout=5, delay_after=LONG_DELAY)
+    except TimeoutError:
+        print("    [warn] YES template not found, clicking known position")
+        pyautogui.click(1132, 835)
+        time.sleep(LONG_DELAY)
 
     # Click OK on reward screen
-    click_image("reward_ok.png", timeout=5, delay_after=0.5)
+    try:
+        click_image("reward_ok.png", timeout=5, delay_after=0.5)
+    except TimeoutError:
+        print("    [warn] Reward OK template not found, clicking known position")
+        pyautogui.click(1280, 1060)
+        time.sleep(0.5)
 
     print("  [trade] Trade complete! Reward collected.")
     return True
