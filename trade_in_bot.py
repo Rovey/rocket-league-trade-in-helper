@@ -333,17 +333,20 @@ def count_filled_slots(screenshot=None):
     Filled slots have a detailed item image (high pixel variance).
     Empty slots are mostly uniform dark with a faint number (low variance).
 
+    Slot positions derived from the crop of the 5-slot bar at (321, 192, 1318, 263).
+
     Returns:
         Number of filled slots (0-5).
     """
     if screenshot is None:
         screenshot = take_screenshot()
 
-    # Slot center X positions at 1440p (from the trade-in screen layout)
-    slot_centers_x = [250, 410, 570, 730, 890]
-    slot_y_start = 130
-    slot_y_end = 250
-    slot_half_w = 60  # Check a 120px wide region centered on each slot
+    # Slot bar: x=321, w=1318 → each slot ~264px wide
+    # Slot centers at 1440p: 321 + 132, +264, +264, +264, +264
+    slot_centers_x = [453, 717, 980, 1244, 1507]
+    slot_y_start = 230  # Inner area of slot (skip top border)
+    slot_y_end = 420    # Inner area of slot (skip bottom border)
+    slot_half_w = 100   # Check a 200px wide region centered on each slot
 
     filled = 0
     for cx in slot_centers_x:
@@ -353,6 +356,35 @@ def count_filled_slots(screenshot=None):
             filled += 1
 
     return filled
+
+
+def handle_too_many_items_popup():
+    """Dismiss the 'Too Many Items' popup by clicking OK.
+
+    This popup appears when trying to add items when all 5 slots are already filled.
+
+    Returns:
+        True if popup was detected and dismissed, False otherwise.
+    """
+    # This popup has an OK button in a similar position to other popups
+    # Since we don't have a dedicated template, check if there's a popup
+    # by looking for any unexpected overlay, and click the OK position
+    screenshot = take_screenshot()
+
+    # Check the popup region (center of screen) for high brightness/contrast
+    # indicating a popup dialog is present
+    popup_region = screenshot[550:650, 950:1600]
+    mean_brightness = np.mean(popup_region)
+
+    # Popups have bright headers — if we see high brightness in the popup area
+    # and we know it's not "Not Eligible" or "Choose Quantity", it's likely "Too Many Items"
+    if mean_brightness > 120:
+        print("    [warn] Popup detected (likely 'Too Many Items') — dismissing")
+        # OK button is at approximately the same position as other popups
+        pyautogui.click(1280, 830)
+        time.sleep(SHORT_DELAY)
+        return True
+    return False
 
 
 def scroll_item_grid():
@@ -490,10 +522,14 @@ def run_trade_in_loop(category_name):
         # Check for "Choose Quantity" popup
         slots_remaining = 5 - slots_filled
         if handle_choose_quantity_popup(slots_remaining):
-            # Quantity popup was handled — actual count will be checked visually next iteration
             new_count = count_filled_slots()
             print(f"    Slots filled: {new_count}/5")
             item_index += 1
+            continue
+
+        # Check for "Too Many Items" popup (all 5 slots already full)
+        if handle_too_many_items_popup():
+            # Slots are full — loop back to the top which will detect 5/5 and trade
             continue
 
         # No popup — item was probably added directly
