@@ -302,18 +302,18 @@ def handle_choose_quantity_popup(slots_remaining):
         slots_remaining: Number of trade-in slots still empty (1-5).
 
     Returns:
-        Number of items selected if popup was found, 0 if not present.
+        True if popup was found and handled, False if not present.
     """
     screenshot = take_screenshot()
     if find_on_screen("choose_quantity_popup.png", screenshot=screenshot, confidence=0.6) is not None:
         # Click + button (slots_remaining - 1) times since it starts at 1
+        # The game will cap at max available — we can't know the exact count
         clicks_needed = slots_remaining - 1
         for _ in range(clicks_needed):
             check_abort()
             try:
-                click_image("quantity_plus.png", timeout=3, delay_after=0.15)
+                click_image("quantity_plus.png", timeout=2, delay_after=0.15)
             except TimeoutError:
-                # Plus button disappeared — we've hit the max available
                 break
 
         try:
@@ -322,19 +322,37 @@ def handle_choose_quantity_popup(slots_remaining):
             print("    [warn] Quantity OK template not found, clicking known position")
             pyautogui.click(1132, 815)
             time.sleep(SHORT_DELAY)
-        print(f"    [quantity] Selected up to {slots_remaining} from duplicates")
-        return slots_remaining  # May be less if capped, but we track optimistically
-    return 0
+        print(f"    [quantity] Selected duplicates (requested up to {slots_remaining})")
+        return True
+    return False
 
 
 def count_filled_slots(screenshot=None):
-    """Count how many of the 5 trade-in slots are filled by checking for the empty slot pattern.
+    """Count how many of the 5 trade-in slots are filled by checking pixel variance.
 
-    This is a heuristic — we primarily track slot count via logic rather than vision.
-    Used as a hook for future improvement.
+    Filled slots have a detailed item image (high pixel variance).
+    Empty slots are mostly uniform dark with a faint number (low variance).
+
+    Returns:
+        Number of filled slots (0-5).
     """
-    # We rely on logical tracking rather than visual counting
-    pass
+    if screenshot is None:
+        screenshot = take_screenshot()
+
+    # Slot center X positions at 1440p (from the trade-in screen layout)
+    slot_centers_x = [250, 410, 570, 730, 890]
+    slot_y_start = 130
+    slot_y_end = 250
+    slot_half_w = 60  # Check a 120px wide region centered on each slot
+
+    filled = 0
+    for cx in slot_centers_x:
+        region = screenshot[slot_y_start:slot_y_end, cx - slot_half_w:cx + slot_half_w]
+        std = np.std(region)
+        if std > 30:  # Filled slots have much more visual variation than empty ones
+            filled += 1
+
+    return filled
 
 
 def scroll_item_grid():
@@ -398,6 +416,8 @@ def run_trade_in_loop(category_name):
     Clicks items in the grid one by one, handles popups, fills 5 slots,
     executes the trade, and repeats until no more items can be traded.
 
+    Uses visual slot counting after each action for reliable tracking.
+
     Args:
         category_name: Display name of the category (for logging/summary).
 
@@ -405,39 +425,49 @@ def run_trade_in_loop(category_name):
         Number of trades completed in this category.
     """
     trades_completed = 0
-    slots_filled = 0
     item_index = 0
     max_items_visible = ITEM_COLS * ITEM_ROWS
     scroll_attempts = 0
-    max_scroll_attempts = 5  # Max times to scroll looking for more items
-    items_tried_since_last_fill = 0
+    max_scroll_attempts = 5
 
     print(f"\n  Starting trade-in for: {category_name}")
 
     while True:
         check_abort()
 
-        # If we've tried all visible items without filling 5 slots
+        # Visually check how many slots are currently filled
+        slots_filled = count_filled_slots()
+
+        # If 5 slots filled, execute the trade
+        if slots_filled >= 5:
+            try:
+                execute_trade()
+                trades_completed += 1
+                item_index = 0  # Reset — grid refreshes after trade
+                scroll_attempts = 0
+                time.sleep(0.5)
+                continue
+            except TimeoutError as e:
+                print(f"  [ERROR] Trade execution failed: {e}")
+                break
+
+        # If we've tried all visible items
         if item_index >= max_items_visible:
             if scroll_attempts < max_scroll_attempts:
                 print(f"  [scroll] Scrolling down for more items (attempt {scroll_attempts + 1})...")
-                # Take screenshot before scroll to compare after
                 before_scroll = take_screenshot()
                 scroll_item_grid()
                 after_scroll = take_screenshot()
 
-                # Check if scroll revealed new content by comparing screenshots
-                # Simple check: if the grid region changed significantly
                 grid_region_before = before_scroll[ITEM_GRID_Y:ITEM_GRID_Y+ITEM_GRID_H, ITEM_GRID_X:ITEM_GRID_X+ITEM_GRID_W]
                 grid_region_after = after_scroll[ITEM_GRID_Y:ITEM_GRID_Y+ITEM_GRID_H, ITEM_GRID_X:ITEM_GRID_X+ITEM_GRID_W]
                 diff = cv2.absdiff(grid_region_before, grid_region_after)
                 mean_diff = np.mean(diff)
 
-                if mean_diff < 5:  # Very little changed — no new items
+                if mean_diff < 5:
                     print("  [scroll] No new items found after scrolling.")
                     break
 
-                # Reset item index to try new items (start from top of visible grid)
                 item_index = 0
                 scroll_attempts += 1
                 continue
@@ -450,48 +480,32 @@ def run_trade_in_loop(category_name):
         check_abort()
         pyautogui.click(pos[0], pos[1])
         time.sleep(SHORT_DELAY)
-
-        # Check what happened after clicking
-        # Wait a moment for any popup to appear
-        time.sleep(0.2)
+        time.sleep(0.2)  # Wait for popup to appear
 
         # Check for "Not Eligible" popup
         if handle_not_eligible_popup():
             item_index += 1
-            items_tried_since_last_fill += 1
             continue
 
         # Check for "Choose Quantity" popup
         slots_remaining = 5 - slots_filled
-        quantity_added = handle_choose_quantity_popup(slots_remaining)
-        if quantity_added > 0:
-            slots_filled += quantity_added
-            print(f"    Slots filled: {slots_filled}/5")
+        if handle_choose_quantity_popup(slots_remaining):
+            # Quantity popup was handled — actual count will be checked visually next iteration
+            new_count = count_filled_slots()
+            print(f"    Slots filled: {new_count}/5")
             item_index += 1
-            items_tried_since_last_fill = 0
+            continue
+
+        # No popup — item was probably added directly
+        new_count = count_filled_slots()
+        if new_count > slots_filled:
+            print(f"    [+] Item added. Slots filled: {new_count}/5")
         else:
-            # No popup — item was added to a slot directly
-            slots_filled += 1
-            print(f"    [+] Item added. Slots filled: {slots_filled}/5")
-            item_index += 1
-            items_tried_since_last_fill = 0
+            print(f"    [?] Clicked item {item_index} — no change detected (slots: {new_count}/5)")
+        item_index += 1
 
-        # If 5 slots filled, execute the trade
-        if slots_filled >= 5:
-            try:
-                execute_trade()
-                trades_completed += 1
-                slots_filled = 0
-                item_index = 0  # Reset — grid refreshes after trade
-                scroll_attempts = 0
-                items_tried_since_last_fill = 0
-                # Wait for trade-in screen to return to empty state
-                time.sleep(0.5)
-            except TimeoutError as e:
-                print(f"  [ERROR] Trade execution failed: {e}")
-                break
-
-    if slots_filled > 0 and slots_filled < 5:
+    slots_filled = count_filled_slots()
+    if 0 < slots_filled < 5:
         print(f"  [done] Only {slots_filled}/5 slots filled — not enough items to trade.")
 
     return trades_completed
