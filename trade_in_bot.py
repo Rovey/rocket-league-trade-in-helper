@@ -274,55 +274,6 @@ def get_item_position(index):
     return (x, y)
 
 
-def handle_not_eligible_popup():
-    """Dismiss the 'Not Eligible' popup by clicking OK.
-
-    Returns:
-        True if popup was found and dismissed, False if not present.
-    """
-    screenshot = take_screenshot()
-    if find_on_screen("not_eligible_popup.png", screenshot=screenshot, confidence=0.6) is not None:
-        try:
-            click_image("not_eligible_ok.png", timeout=3, delay_after=SHORT_DELAY)
-        except TimeoutError:
-            # Template match failed — click the known OK button position as fallback
-            print("    [warn] OK button template not found, clicking known position")
-            pyautogui.click(1280, 815)
-            time.sleep(SHORT_DELAY)
-        print("    [skip] Item not eligible for trade-in")
-        return True
-    return False
-
-
-def handle_choose_quantity_popup(slots_remaining):
-    """Handle the 'Choose Quantity' popup — select max available up to slots_remaining.
-
-    Args:
-        slots_remaining: Number of trade-in slots still empty (1-5).
-
-    Returns:
-        True if popup was found and handled, False if not present.
-    """
-    screenshot = take_screenshot()
-    if find_on_screen("choose_quantity_popup.png", screenshot=screenshot, confidence=0.6) is not None:
-        # Click + button (slots_remaining - 1) times since it starts at 1
-        # The game will cap at max available — we can't know the exact count
-        # Use known position (1375, 731) as the + button template is tiny and unreliable
-        clicks_needed = slots_remaining - 1
-        for _ in range(clicks_needed):
-            check_abort()
-            pyautogui.click(1375, 731)
-            time.sleep(0.2)
-
-        try:
-            click_image("quantity_ok.png", timeout=3, delay_after=SHORT_DELAY)
-        except TimeoutError:
-            print("    [warn] Quantity OK template not found, clicking known position")
-            pyautogui.click(1132, 815)
-            time.sleep(SHORT_DELAY)
-        print(f"    [quantity] Selected duplicates (requested up to {slots_remaining})")
-        return True
-    return False
 
 
 def count_filled_slots(screenshot=None):
@@ -597,12 +548,6 @@ def is_on_main_menu(screenshot=None):
             continue
     return False
 
-
-def is_on_trade_in_screen(screenshot=None):
-    """Check if we're on the trade-in item selection screen."""
-    if screenshot is None:
-        screenshot = take_screenshot()
-    return is_on_screen("show_filters.png", screenshot=screenshot)
 
 
 def navigate_to_category(template_name, category_name):

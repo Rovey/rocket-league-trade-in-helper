@@ -1,3 +1,5 @@
 .superpowers/
+.claude/
 debug/
 __pycache__/
+template_coords.json
