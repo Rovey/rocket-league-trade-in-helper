@@ -145,16 +145,36 @@ python trade_in_bot.py --discover-open    # also click OPEN DROP and record the 
 
 Frames land in `debug/drop_flow/`. Crop the new button into `templates/`, add its
 search box to `TEMPLATE_REGIONS`, add a reference screenshot to
-`validate_regions.py`, and re-run the validator.
+`validate_regions.py`, and re-run the validator. Mask anything personal in that
+screenshot first, see [Screenshots in the repo](#screenshots-in-the-repo).
 
 ## Recalibration
 
 If you switch resolution:
 
-1. Take new screenshots of each UI state into `ui-images/`
+1. Take new screenshots of each UI state into `ui-images/` and mask anything
+   personal in them, see [Screenshots in the repo](#screenshots-in-the-repo)
 2. `python crop_templates_interactive.py` to re-select template regions
 3. `python validate_grid.py` to adjust the item grid positions
 4. `python validate_regions.py` to re-check the search boxes
+
+## Screenshots in the repo
+
+This repository is public, so an image may only be committed once nothing
+personal is visible in it. That rules out:
+
+- real names, profile pictures, player or account names, club tags, friends
+  and party members
+- chat, notifications and overlays from other apps (Discord, Steam, ...)
+- other windows, the taskbar, IP or e-mail addresses, keys and tokens
+
+Black the area out before committing, then run `python validate_regions.py`.
+Mask rather than crop: every tool here works in absolute 2560x1440 screen
+coordinates, so the canvas has to keep its size.
+
+`debug/` is git-ignored for this reason: its captures show whatever was on
+screen. Never force-add from it. Copy the frame to `ui-images/` and mask it
+first.
 
 ## Safety
 
