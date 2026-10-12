@@ -46,6 +46,9 @@ python trade_in_bot.py --mode trade     # only run the trade-in loop
 python trade_in_bot.py --mode where     # print which screen the bot thinks it sees
 ```
 
+On Windows, double-click `start_bot.bat` instead; it passes any flags through
+(`start_bot.bat --mode trade`).
+
 | Flag | Effect |
 |---|---|
 | `--dry-run` | Navigates and fills slots but never clicks ACCEPT / YES / OPEN DROP |
