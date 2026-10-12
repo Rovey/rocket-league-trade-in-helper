@@ -25,6 +25,8 @@ REFERENCES = {
     "inv_header_reward.png": "ui-images/inventory_reward_items.png",
     "trade_in_title.png": "ui-images/main screen.png",
     "trade_in_title.png#dimmed": "ui-images/trade_in_menu_dimmed.png",
+    # The Black Market Item Converter card pushes the title up.
+    "trade_in_title.png#converter": "ui-images/trade_in_menu_converter.png",
     "show_filters.png": "ui-images/trade in empty.png",
     "back_button.png": "ui-images/trade in empty.png",
     "trade_in_empty_slots.png": "ui-images/trade in empty.png",

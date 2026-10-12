@@ -89,7 +89,9 @@ INV_TAB_SEARCH_REGION = (0, 60, 1400, 110)
 # Regions are deliberately generous. `--full-scan` ignores them.
 TEMPLATE_REGIONS = {
     # Trade-in category screen
-    "trade_in_title.png": (1780, 520, 500, 190),
+    # The title sits 137 px higher when the Black Market Item Converter card is
+    # shown underneath it, so the box has to cover both heights.
+    "trade_in_title.png": (1780, 380, 500, 330),
     "card_core_special.png": (140, 280, 380, 270),
     "card_core_deluxe.png": (430, 280, 380, 270),
     "card_core_import.png": (720, 285, 390, 270),
@@ -814,14 +816,20 @@ def dismiss_any_popup(label="unknown popup"):
     """
     screenshot = take_screenshot()
 
+    # Every OK-only dialog draws the same button in the same place as the
+    # quantity popup. The server "ERROR" dialog is far too dark for the
+    # brightness check below (77 measured), so the button is what gives it away.
+    ok_pos = find_on_screen("quantity_ok.png", screenshot=screenshot)
+
     # Check the popup header region (center of screen) for high brightness
     popup_region = screenshot[550:650, 950:1600]
     mean_brightness = np.mean(popup_region)
 
-    if mean_brightness > 120:
+    if ok_pos is not None or mean_brightness > 120:
         print(f"    [popup] Detected {label} — dismissing with OK")
         # OK button is at approximately the same position for all popups
-        click_at(1280, 830, "generic popup OK")
+        x, y = ok_pos or (1280, 830)
+        click_at(x, y, "generic popup OK")
         time.sleep(0.5)
         return True
     return False
@@ -883,6 +891,9 @@ def execute_trade():
         click_first(("reward_ok.png", "drop_reveal_ok.png", "drop_reveal_ok_hl.png"),
                     timeout=5, delay_after=0.3)
     except TimeoutError:
+        # No reward screen can also mean the servers refused the trade.
+        if dismiss_any_popup("error instead of reward"):
+            raise TimeoutError("the game showed an error dialog instead of a reward")
         print("    [warn] Reward OK template not found, clicking known position")
         click_at(1280, 1060, "reward OK fallback")
         time.sleep(0.5)
@@ -1336,6 +1347,11 @@ def ensure_screen(target, max_steps=12):
             click_first(DROP_TEMPLATES["reveal_ok"], timeout=5)
             continue
 
+        # A modal dialog (for example a server "ERROR") swallows every click
+        # behind it, BACK included, so it has to go before anything else.
+        if where == "unknown" and dismiss_any_popup("blocking popup"):
+            continue
+
         if where in ("drop_preview", "inventory", "trade_in") or find_on_screen("back_button.png"):
             click_back_button()
             # The menu animates out; without waiting for the real transition the
@@ -1691,7 +1707,9 @@ def navigate_to_category(template_name, category_name):
     """
     print(f"\n[>] Trying category: {category_name}")
 
-    # Check if the card exists on screen
+    # Check if the card exists on screen. This is a single look rather than a
+    # wait, so a window covering the game would read as "no cards".
+    maybe_focus()
     screen = take_screenshot()
     pos = find_on_screen(template_name, screenshot=screen)
     if pos is None:
